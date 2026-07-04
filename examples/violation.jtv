@@ -1,0 +1,16 @@
+# VIOLATION — this file MUST be rejected. It is not a bug; its rejection
+# is the diode working as designed. Try it:
+#   python -m jtv.cli examples/violation.jtv --mode control
+# and observe a DataParseError, not a crash deep in evaluation.
+#
+# The assignment below tries to put a CONTROL if/then/else construct on
+# the right-hand side of `=` — i.e. in DATA-grammar position. The DATA
+# parser (data_parser.py) has no grammar production that accepts an `if`
+# token; there is no rule anywhere in that file that would let this
+# parse. Rejection happens at parse time, before any evaluation, because
+# the two grammars are structurally separate: CONTROL has an `if_stmt`
+# production, DATA does not, and the assignment's right-hand side is
+# always parsed by the DATA parser, never the CONTROL parser.
+begin
+  x = if 1 < 2 then 3 else 4
+end

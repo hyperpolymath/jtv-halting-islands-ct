@@ -1,0 +1,89 @@
+(* JtV (Julia the Viper) — full grammar, both sublanguages, and the bridge.
+   Matches src/jtv/data_parser.py and src/jtv/control_parser.py exactly. *)
+
+(* =====================================================================
+   DATA sublanguage — addition-only, total (no recursion, no loops, no
+   conditionals). This is the whole language: nothing else exists here.
+   Membership in this grammar IS the termination certificate — every
+   production below is a finite structural recursion with no way to
+   loop, so anything that parses as data_expr is guaranteed to halt.
+   ===================================================================== *)
+
+data_expr       = boolean_expr ;
+
+boolean_expr    = boolean_term , { bool_op , boolean_term } ;
+bool_op         = "and" | "or" ;
+
+boolean_term    = [ "not" ] , boolean_atom ;
+
+(* boolean_atom's last alternative (bare additive_expr) is not a
+   separate rule in the original design note — it is what makes
+   `data_expr` also accept plain arithmetic (e.g. as an assignment
+   right-hand side or a print argument) and not only boolean results. *)
+boolean_atom    = comparison_expr
+                | boolean_literal
+                | "(" , boolean_expr , ")"
+                | additive_expr ;
+
+boolean_literal = "true" | "false" ;
+
+comparison_expr = additive_expr , comp_op , additive_expr ;
+comp_op         = "==" | "!=" | "<" | ">" | "<=" | ">=" ;
+
+additive_expr   = term , { add_op , term } ;
+add_op          = "+" | "plus" | "added_to" | "with" ;
+
+term            = number_literal | data_variable ;
+
+number_literal  = digit , { digit } , [ "/" , digit , { digit } ] ;
+data_variable   = identifier ;
+
+(* =====================================================================
+   CONTROL sublanguage — Turing-complete, imperative. Openly capable of
+   non-termination (while_stmt). Nothing here proves a CONTROL program
+   halts; JtV does not claim that. See README LIMITATIONS.
+   ===================================================================== *)
+
+control_program = { control_stmt } ;
+
+control_stmt    = assignment
+                | if_stmt
+                | while_stmt
+                | print_stmt
+                | block ;
+
+block           = "begin" , { control_stmt } , "end" ;
+
+(* ---------------------------------------------------------------------
+   THE BRIDGE — the diode.
+   The right-hand side of an assignment, and every condition/argument
+   below, is a data_expr: parsed by the SEPARATE data-language parser,
+   producing a SEPARATE DataNode AST, then evaluated to a halted value
+   before being bound into the CONTROL environment or consumed by
+   CONTROL. There is no production anywhere in this file, or in
+   data_expr above, under which a control_stmt can appear inside a
+   data_expr. The arrow only ever points one way:
+
+       data_expr  ==(evaluated, halted value)==>  control variable
+
+   never the reverse.
+   --------------------------------------------------------------------- *)
+assignment      = variable , "=" , data_expr ;
+
+if_stmt         = "if" , boolean_expr , "then" , control_stmt ,
+                   [ "else" , control_stmt ] ;
+
+while_stmt      = "while" , boolean_expr , "do" , control_stmt ;
+
+print_stmt      = "print" , "(" , data_expr , { "," , data_expr } , ")" ;
+
+variable        = identifier ;
+
+(* =====================================================================
+   Shared lexical rules (lexing is not part of the diode — see
+   src/jtv/lexer.py's module docstring for why).
+   ===================================================================== *)
+
+identifier      = letter , { letter | digit | "_" } ;
+letter          = "a" | ... | "z" | "A" | ... | "Z" | "_" ;
+digit           = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;

@@ -1,0 +1,21 @@
+# A CONTROL program that uses DATA blocks as totality oracles. Run with:
+#   python -m jtv.cli examples/oracle.jtv --mode control
+#
+# `i < n`, `sum plus i`, and `i plus 1` are all DATA expressions: each one
+# is guaranteed to halt the instant it's checked/evaluated (it's addition
+# and comparison over finite terms — nothing to loop on). The `while` loop
+# itself is CONTROL, openly Turing-complete: nothing in JtV proves this
+# particular loop terminates. It happens to, because `i` counts up to a
+# fixed `n`, but that is ordinary reasoning about this program, not a
+# guarantee the language gives you. See README LIMITATIONS.
+begin
+  n = 5
+  sum = 0
+  i = 0
+  while i < n do
+    begin
+      sum = sum plus i
+      i = i plus 1
+    end
+  print(sum)
+end
