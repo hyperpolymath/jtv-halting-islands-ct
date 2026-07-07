@@ -137,30 +137,108 @@ narrowest case where the collapse is clean.
 
 ### 3. Prior art
 
-JtV's diode sits in a design space with real neighbours, and a full
-prior-art search is **pending** — this repo does not claim novelty, only
-that it demonstrates one specific point in that space cleanly:
-grammar-membership-as-termination-certificate, a one-way diode bridge,
-and an injectable oracle block, all enforced structurally rather than by
-a runtime check. Relevant neighbours to compare against once that search
-happens:
+A prior-art / design-space search has now been done (see
+[`dev-notes/2026-07-07-prior-art.md`](dev-notes/2026-07-07-prior-art.md)
+for the full analysis and sources). The short version, stated honestly:
 
-- **Dhall** — a total, non-Turing-complete configuration language
-  explicitly designed to guarantee termination.
-- **Starlark** — Python-like but deliberately non-Turing-complete
-  (bounded loops, no unbounded recursion), used as a safe embedded
-  config/build language.
-- **CUE** — a total, order-independent configuration language with its
-  own constraint-based evaluation model.
-- **Nickel** — a configuration language with gradual typing and contracts,
-  another point in the "safe DSL embedded in a larger system" space.
-- **Staged / two-level languages** — languages with an explicit
-  compile-time/run-time (or "meta"/"object") stage separation, which is
-  the closest general concept to JtV's Harvard-style DATA/CONTROL split.
-- **Effect and capability systems** — type-system mechanisms that
-  restrict what a piece of code can do (e.g. "this code cannot perform
-  I/O" or "this code cannot diverge"), which is one lens for describing
-  what the diode is doing structurally rather than via types.
+**Each of JtV's three ingredients is individually well-precedented. What
+has no clear single predecessor is the specific *combination*, and above
+all the *enforcement modality* — doing all of it purely structurally (two
+grammars + two AST hierarchies, no type system, no termination checker,
+no runtime guard), with the termination certificate being grammar
+membership itself and the bridge being genuinely one-way.** JtV is best
+understood as a minimalist demonstration of that unoccupied corner, not
+as a new capability. The design space around it is crowded; the exact
+point it stands on appears to be empty.
+
+**How the neighbours obtain totality — the key contrast.** The goal of a
+"total, non-Turing-complete sublanguage" is old (D.A. Turner framed the
+*Security vs. Universality* choice in "Total Functional Programming",
+2004). But every established neighbour derives totality from a **checker
+or a type system**, never from grammar membership:
+
+- **Dhall** — a total, deliberately non-Turing-complete config language.
+  Its guarantee is explicitly type-system-mediated: *"if a Dhall
+  configuration file type-checks then program evaluation/normalization
+  will never fail."* Recursion is caught as a **type error**, not a parse
+  failure; the only recursive structure (lists) is consumed solely via
+  terminating primitives (`List/fold`). So Dhall reaches the same
+  *guarantee* as JtV's DATA layer by the opposite *mechanism*. It also
+  has no data/control split and no bridge — a Dhall file computes one
+  pure value that a larger program consumes (a one-directional
+  data-into-host relationship, the closest thing here to the "oracle"
+  idea, but across a file boundary, not an embedded diode).
+- **Starlark** and **CUE** — non-Turing-complete by **forbidding general
+  recursion** (Starlark) and by abandoning functions/recursion for a
+  constraint lattice (CUE). Restrict-and-evaluate, not grammar-membership.
+- **Nickel** — the outlier that deliberately **keeps** Turing-completeness
+  (it permits general recursion) and leans on gradual typing + runtime
+  contracts instead. Not a totality neighbour at all; useful only to mark
+  the far end of the axis.
+- **Agda / Idris / Coq (Rocq)** and tools like **foetus** — totality via
+  a dedicated **termination checker** run as a *separate post-parse
+  phase* (structural/lexicographic descent, sized types, measures). This
+  is exactly the machinery JtV's addition-only grammar is chosen to make
+  unnecessary. (General termination analysis is Π⁰₂-hard, so every sound
+  checker is necessarily incomplete — the standing reason totality
+  usually needs a real analysis pass. JtV sidesteps that only by making
+  its DATA grammar so weak there is structurally nothing to loop on.)
+
+**On mechanism (1), grammar-membership = termination certificate.** The
+closest genuine analogue is **parser-termination** work: *well-formed*
+Parsing Expression Grammars, where a checked structural well-formedness
+condition guarantees the *parser* halts (Blaudeau & Shankar, "A Verified
+Packrat Parser Interpreter", CPP 2020). But that certifies termination of
+*parsing the grammar*, not termination of *evaluating the object
+language* — which is the gap JtV closes by choosing a grammar whose
+membership coincides with evaluation-termination. Caveat, and it is a
+real one: "membership is a termination certificate" holds **only** for a
+suitably restricted (decidable-recognition) grammar class — a
+Turing-powerful parser can itself diverge (cf. Turing-complete parsing,
+MDPI *Mathematics* 2023). JtV's claim is therefore contingent on the
+addition-only restriction, exactly as LIMITATIONS §2 already says.
+
+**On mechanism (2), the one-way structural diode.** Stage/level
+separation is thoroughly explored — two-level type theory (2LTT/CFTT,
+Kovács), MetaML/MetaOCaml, Terra, staged λ-calculi (Feltman et al.,
+ESOP 2016), Koka's divergence effect — but two things separate all of
+them from JtV:
+- They enforce the split with a **type system** (universe levels,
+  modalities, effect rows, staging annotations), *not* two disjoint
+  grammars validated at AST-construction time.
+- Their bridges are **bidirectional or the totality runs the other way.**
+  MetaML-style `quote`/`splice`/`lift` moves code *both* up and down. In
+  2LTT the *total* layer is the compile-time meta-language while the
+  runtime object layer has general recursion — the opposite polarity to
+  JtV (where the embedded DATA is the total side and the CONTROL host is
+  Turing-complete). **Terra** is the closest on "two genuinely separate
+  AST hierarchies," but its object stage is not total and the meta/object
+  relation is a performance-staging split, not a one-way total→control
+  diode. A genuinely one-way structural bridge *from* a total sublanguage
+  *into* a Turing-complete host appears unoccupied.
+
+**On mechanism (3), the injectable guaranteed-halting oracle.** The idea
+of a reliably-terminating sub-computation feeding a larger one exists —
+staged property-based-testing generators evaluated entirely at
+compile-time (Goldstein et al., "Fail Faster", 2025), Dhall's pure config
+value, affine type-and-effect systems where capability-carrying terms
+provably cannot diverge. In every case, though, halting is either an
+*emergent* property of what happens to be statically known or a
+*type/effect* discipline — not a block whose halting is guaranteed
+*structurally* by the grammar it is written in. This is individually
+JtV's weakest novelty claim; it is really a corollary of mechanisms (1)
+and (2) rather than a separate contribution.
+
+**Honest bottom line.** Nothing here is unprecedented in isolation, and
+this repo does not claim otherwise. The total-vs-Turing-complete split is
+Turner (2004); two-language structural separation is Terra/staging;
+guaranteed-halting sub-computations appear in staged and effect-typed
+settings. The contribution — such as it is for a proof-of-concept — is
+the *modality*: collapsing totality-checking into parsing, and enforcing
+a *one-way* DATA→CONTROL diode *purely structurally* (grammar + AST, no
+types, no checker, no runtime guard), all at once. That specific point
+looks empty on the map. Whether it is worth occupying is a separate
+question this POC does not try to answer.
 
 ### Other explicit non-goals of this repo
 
