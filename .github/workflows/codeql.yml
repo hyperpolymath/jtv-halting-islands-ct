@@ -16,6 +16,16 @@ permissions:
 
 jobs:
   analyze:
+    # Code scanning requires GitHub Advanced Security on private
+    # repositories. This one does not have it, so every CodeQL run ended with
+    # "Code scanning is not enabled for this repository" — it has never worked
+    # and cannot while the repo stays private.
+    #
+    # A skipped job still reports a check run (conclusion `skipped`), which
+    # GitHub treats as satisfied for required status checks, so this creates no
+    # phantom. It also self-heals: make the repository public and the job
+    # starts running again with no workflow edit.
+    if: ${{ !github.event.repository.private }}
     name: CodeQL Analysis
     runs-on: ubuntu-latest
     permissions:
