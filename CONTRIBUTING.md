@@ -1,13 +1,13 @@
 # Clone the repository
-git clone https://github.com/hyperpolymath/squisher-corpus.git
-cd squisher-corpus
+git clone https://github.com/hyperpolymath/jtv-halting-islands-ct.git
+cd jtv-halting-islands-ct
 
 # Using Nix (recommended for reproducibility)
 nix develop
 
 # Or using toolbox/distrobox
-toolbox create squisher-corpus-dev
-toolbox enter squisher-corpus-dev
+toolbox create jtv-halting-islands-ct-dev
+toolbox enter jtv-halting-islands-ct-dev
 # Install dependencies manually
 
 # Verify setup
@@ -17,7 +17,7 @@ just test    # Run test suite
 
 ### Repository Structure
 ```
-squisher-corpus/
+jtv-halting-islands-ct/
 ├── src/                 # Source code (Perimeter 1-2)
 ├── lib/                 # Library code (Perimeter 1-2)
 ├── extensions/          # Extensions (Perimeter 2)
@@ -86,10 +86,10 @@ Use the [feature request template](.github/ISSUE_TEMPLATE/feature_request.md) an
 
 Look for issues labelled:
 
-- [`good first issue`](https://github.com/hyperpolymath/squisher-corpus/labels/good%20first%20issue) — Simple Perimeter 3 tasks
-- [`help wanted`](https://github.com/hyperpolymath/squisher-corpus/labels/help%20wanted) — Community help needed
-- [`documentation`](https://github.com/hyperpolymath/squisher-corpus/labels/documentation) — Docs improvements
-- [`perimeter-3`](https://github.com/hyperpolymath/squisher-corpus/labels/perimeter-3) — Community sandbox scope
+- [`good first issue`](https://github.com/hyperpolymath/jtv-halting-islands-ct/labels/good%20first%20issue) — Simple Perimeter 3 tasks
+- [`help wanted`](https://github.com/hyperpolymath/jtv-halting-islands-ct/labels/help%20wanted) — Community help needed
+- [`documentation`](https://github.com/hyperpolymath/jtv-halting-islands-ct/labels/documentation) — Docs improvements
+- [`perimeter-3`](https://github.com/hyperpolymath/jtv-halting-islands-ct/labels/perimeter-3) — Community sandbox scope
 
 ---
 
