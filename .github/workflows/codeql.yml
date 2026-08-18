@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MPL-2.0
+# This workflow is managed by gh actions-lock.
 name: CodeQL
 
 on:
@@ -16,6 +17,16 @@ permissions:
 
 jobs:
   analyze:
+    # Code scanning requires GitHub Advanced Security on private
+    # repositories. This one does not have it, so every CodeQL run ended with
+    # "Code scanning is not enabled for this repository" — it has never worked
+    # and cannot while the repo stays private.
+    #
+    # A skipped job still reports a check run (conclusion `skipped`), which
+    # GitHub treats as satisfied for required status checks, so this creates no
+    # phantom. It also self-heals: make the repository public and the job
+    # starts running again with no workflow edit.
+    if: ${{ !github.event.repository.private }}
     name: CodeQL Analysis
     runs-on: ubuntu-latest
     permissions:
@@ -30,16 +41,16 @@ jobs:
             build-mode: none
     steps:
       - name: Checkout repository
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4
+        uses: actions/checkout@v4.1.1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@29b1f65c1f735799893313399435a59f54045865 # v3
+        uses: github/codeql-action/init@v3.37.3
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@29b1f65c1f735799893313399435a59f54045865 # v3
+        uses: github/codeql-action/autobuild@v3.37.3
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@29b1f65c1f735799893313399435a59f54045865 # v3
+        uses: github/codeql-action/analyze@v3.37.3
