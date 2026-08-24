@@ -1,0 +1,197 @@
+== JtV proof-of-concept — handover (2026-07-06)
+
+Written for a fresh Claude picking this up with no memory of the build
+session. Read this before touching anything.
+
+=== What this repo is
+
+`+jtv-poc+` is a *small, scope-disciplined proof-of-concept*, not a
+language implementation. It demonstrates exactly one claim — see the top
+of `+README.md+` for the precise wording, do not paraphrase it looser or
+tighter than what’s there. In one line: JtV has a total, addition-only
+DATA sublanguage whose grammar membership _is_ its termination
+certificate, and a Turing-complete CONTROL sublanguage, joined by a
+one-way "`diode`" bridge enforced structurally (two separate parsers,
+two separate AST hierarchies) rather than by a forgettable runtime
+check.
+
+*The single most important thing to not get wrong if you touch this
+repo:* JtV proves individual DATA expressions halt (a "`totality
+oracle`"). It does *not* prove whole JtV programs halt — CONTROL has an
+unrestricted `+while+`. The README’s LIMITATIONS section exists
+specifically to head off that conflation. If you ever edit the README,
+re-read that section and make sure the distinction survives.
+
+=== Status: DONE, per the original completion criterion
+
+The task that produced this repo had an explicit stop-here criterion,
+already met:
+
+* Positive examples evaluate correctly (`+pure_data.jtv+` → `+1+`
+exactly via `+fractions.Fraction+`; `+oracle.jtv+` → `+10+`).
+* The negative example (`+violation.jtv+`) is rejected by the diode with
+a clear error, not a crash.
+* README pins the claim at the correct level, LIMITATIONS section
+present (totality-oracle vs. whole-program-halting; narrowness of the
+addition-only fragment; prior-art pointer marked pending, not a novelty
+claim).
+* Git repo initialized, initial commit made (signed, verified —
+`+git log --show-signature+` on `+91b345b+`), tagged `+v0.1.0+` (signed
+tag, verified).
+* 45/45 tests passing, including the diode-negative suite which is the
+actual point of the exercise.
+
+*Do not resume "`completing`" this repo by adding a type checker, an
+LSP, a package build, CI, or a richer data language.* Those were
+explicitly out of scope for the original task and remain out of scope
+unless a human asks for a _new_ phase of work.
+
+=== Repo layout (for orientation, not a full index — read the files)
+
+....
+GRAMMAR.ebnf              full EBNF, both sublanguages + the bridge
+README.md                 the claim, 60s example, LIMITATIONS
+LICENSE                   placeholder — TODO, real license not chosen yet
+src/jtv/
+  lexer.py                shared tokenizer (lexing != the diode boundary)
+  data_ast.py             DATA AST node types (sealed whitelist at bottom)
+  data_parser.py          DATA-only recursive-descent parser
+  data_eval.py            DATA evaluator (structurally can't diverge)
+  control_ast.py          CONTROL AST node types; __post_init__ calls the diode
+  control_parser.py       CONTROL parser; calls into data_parser for sub-exprs
+  control_eval.py         CONTROL evaluator (can diverge - by design, see While)
+  diode.py                assert_pure_data() - the AST-level enforcement layer
+  cli.py                  `python -m jtv.cli <file> --mode data|control`
+examples/
+  pure_data.jtv           1/3 + 1/3 + 1/3 == 1 exactly
+  oracle.jtv              while-loop control program using data as oracle
+  violation.jtv           MUST fail to parse - that's the point
+tests/
+  test_data_language.py
+  test_control_language.py
+  test_diode_negative.py  <- the heart of the POC, read this one first
+....
+
+=== Design decisions made that aren’t 100% spelled out in the original spec
+
+The task spec gave the grammar mostly as written, but a few things
+needed an interpretive call during implementation. Recorded here so
+nobody "`fixes`" them later thinking they’re bugs:
+
+[arabic]
+. *Top-level `+data_expr+` rule.* The spec defines `+additive_expr+`,
+`+comparison_expr+`, `+boolean_expr+`, `+boolean_term+` but never states
+an explicit top rule. I added `+data_expr = boolean_expr+`, with
+`+boolean_atom+` falling back to a bare `+additive_expr+` when no
+comparison operator follows. This is what lets `+x = 3 + 4+` (pure
+arithmetic, no comparison) work as an assignment RHS, and what lets
+`+print(sum)+` print a plain number. See the comment block at the top of
+`+GRAMMAR.ebnf+` and in `+data_parser.py+`’s module docstring.
+. *No parens in arithmetic.* Per spec,
+`+term = number_literal |    data_variable+` - no parenthesized
+sub-expressions in `+additive_expr+`. Parens exist only around
+`+boolean_expr+`. This is intentional, not an oversight - don’t "`fix`"
+it by adding arithmetic grouping without checking whether that changes
+the totality argument (it wouldn’t, but it’s scope creep either way).
+. *Fraction literal syntax.* `+N/M+` (e.g. `+1/3+`) is a single NUMBER
+token in the lexer, not a division operator - DATA has no division. This
+keeps "`addition-only`" honest while still allowing rational literals.
+. *`+add_op+` word forms* (`+plus+`, `+added_to+`, `+with+`) and the
+symbol `+++` are all lexed to the same `+ADDOP_SYM+`/`+ADDOP_WORD+`
+token kinds and collapse to a single `+Add+` AST node - there’s no
+semantic difference between spellings, it’s purely surface syntax per
+the original spec.
+. *The diode is two independent layers, deliberately redundant:*
+[loweralpha]
+.. the DATA parser’s grammar has no production admitting control
+keywords (text-level rejection, at parse time), and (b) `+diode.py+`’s
+`+assert_pure_data+`, called from every `+control_ast.py+` node’s
+`+__post_init__+`, rejects any non-DataNode object found in a data-typed
+field even if you hand-construct the AST in Python and bypass the parser
+entirely. `+tests/test_diode_negative.py+` exercises both layers
+separately - keep that split if you ever add more tests.
+
+=== One real bug found and fixed during the build (worth knowing about)
+
+The first draft of `+assert_pure_data+` in `+diode.py+` only flagged a
+smuggled object if it was itself a dataclass
+(`+elif dataclasses.is_dataclass(child) and not isinstance(child, DATA_NODE_TYPES)+`).
+A plain, non-dataclass Python object stuffed into a `+DataNode+` field
+(e.g. `+Add(left=NumberLiteral(1), right=SomeRandomObject())+`) slipped
+through silently - neither branch of the old check caught it. Fixed by
+replacing the ad hoc dataclass check with an explicit allow-list walk
+(`+_check_field_value+`): every field value must be a `+DataNode+`
+subtree, or one of `+Fraction+`/`+bool+`/`+str+`, or a tuple of those -
+anything else raises `+DiodeViolation+`. This is now covered by
+`+test_assert_pure_data_rejects_control_node_nested_inside_data_node+`
+in `+tests/test_diode_negative.py+`. If you extend `+data_ast.py+` with
+a new node type that has a field of some other primitive type, update
+`+_PRIMITIVE_FIELD_TYPES+` in `+diode.py+` accordingly or this same
+class of bug reappears.
+
+=== What is explicitly NOT done (by design, not by oversight)
+
+* *No real license.* `+LICENSE+` is a placeholder with a TODO. The
+original instruction was "`I will drop in my own`" - don’t pick one
+unprompted.
+* *No git remote / no GitHub repo / no push / no PR.* This was built as
+a brand-new standalone repo with no remote configured. Nothing was
+pushed anywhere. If a human wants this on GitHub, that’s a new, explicit
+ask (repo creation + remote + push), not something to infer.
+* *No prior-art literature search actually done.* The README names
+plausible neighbours (Dhall, Starlark, CUE, Nickel, staged languages,
+effect/capability systems) but says outright that the comparison is
+pending. If asked to "`finish the prior art section,`" that means
+actually researching those systems and writing a real comparison, not
+just leaving the current placeholder prose.
+* *No CI.* Tests are run locally via `+pytest+`. Spec explicitly said
+"`no CI beyond a test runner,`" which was interpreted as "`not even a CI
+config file`" - there is none. If asked to add CI later, that’s new
+scope, confirm it’s wanted before adding e.g. a GitHub Actions workflow.
+* *`+pytest+` is not vendored/pinned.* It’s installed ad hoc (a scratch
+venv was used during the build and discarded). There’s no
+`+requirements.txt+` / `+pyproject.toml+` - the README’s "`how to run`"
+section just says `+pip install pytest+`. Adding packaging is explicitly
+out of scope per the original task ("`no package build`").
+
+=== If you’re asked to extend this later
+
+Likely asks and where they’d land: - *"`Widen DATA to support X
+(recursion/loops/functions)`"* - this breaks the load-bearing "`grammar
+membership = termination`" property and the README says so explicitly
+(LIMITATIONS §2). Re-establishing totality would need a real termination
+argument (structural recursion proof, fuel, a measure) separate from
+parsing. Don’t do this casually; flag the tradeoff to whoever asks. -
+*"`Actually do the prior-art search`"* - legitimate, scoped, separate
+task; the README section names the five/six systems to compare against.
+- *"`Push this to GitHub`"* - needs an explicit decision on repo
+visibility/owner and a real LICENSE first (currently a TODO
+placeholder); ask before creating anything public. - *"`Add a real
+license`"* - just needs the human’s choice of license text dropped into
+`+LICENSE+`, replacing the placeholder.
+
+=== How to verify the repo’s current state from scratch
+
+[source,sh]
+----
+cd /home/hyperpolymath/developer/repos/jtv-poc
+python3 -m venv /tmp/jtv-venv && /tmp/jtv-venv/bin/pip install -q pytest
+PYTHONPATH=src /tmp/jtv-venv/bin/python -m pytest tests/ -v   # expect 45 passed
+PYTHONPATH=src python3 -m jtv.cli examples/pure_data.jtv --mode data     # -> 1
+PYTHONPATH=src python3 -m jtv.cli examples/oracle.jtv --mode control    # -> 10
+PYTHONPATH=src python3 -m jtv.cli examples/violation.jtv --mode control # -> DataParseError (expected)
+git log --oneline --decorate --all   # expect: 91b345b (HEAD -> main, tag: v0.1.0) Initial commit...
+----
+
+=== A note on how this file got committed
+
+This handover was written in a session that treated `+jtv-poc+` as a
+background job’s working tree. Once the repo existed (post
+`+git init+`), the harness required isolating further edits into a git
+worktree before writing more files, so this file was authored inside
+`+.claude/worktrees/jtv-poc-devnotes/+` on a branch named
+`+worktree-jtv-poc-devnotes+`, then merged back into `+main+` and the
+worktree removed. If you find stray `+.claude/worktrees/+` directories
+or `+worktree-*+` branches still lying around later, they’re leftover
+isolation scaffolding, not intentional project structure - safe to clean
+up once merged.
