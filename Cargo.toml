@@ -1,0 +1,12 @@
+[package]
+name = "jtv-halting-islands-ct"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+creusot-contracts = { version = "0.2", optional = true }
+
+[features]
+default = []
+verify = ["creusot-contracts"]
