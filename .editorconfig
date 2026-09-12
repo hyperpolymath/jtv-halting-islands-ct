@@ -39,10 +39,8 @@ trim_trailing_whitespace = false
 [*.{json,yml,yaml,toml,xml,svg}]
 # SPDX-License-Identifier: MPL-2.0
 [*.adoc]
-[*.ada]
+[*.{ada,adb,ads}]
 indent_size = 3
-[*.adb]
-[*.ads]
 [*.ex]
 [*.exs]
 [*.res]
