@@ -14,4 +14,5 @@ liberapay: hyperpolymath
 open_collective: jonathan-jewell
 patreon: cc_studio
 polar: hyperpolymath
-thanks_dev: hyperpolymath
+custom:
+  - https://thanks.dev/hyperpolymath
