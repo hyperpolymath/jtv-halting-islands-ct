@@ -3,20 +3,27 @@
 # Docs: https://gh.io/actions-lockfile
 version: 'v0.0.2'
 workflows:
+    '.github/workflows/codeql.yml':
+        - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
+        - 'github/codeql-action@cdf488f595d80d6e07e03d4674febd5ab45fa938'
     '.github/workflows/label-triage.yml': []
     '.github/workflows/labels.yml': []
-    '.github/workflows/secret-scanner.yml': []
-    '.github/workflows/codeql.yml':
-        - 'actions/checkout@v4.1.1'
-        - 'github/codeql-action@v3.37.3'
     '.github/workflows/main-estate-audit.yml':
         - 'actions/checkout@v4.4.0'
-        - 'hyperpolymath/cicd-suite@main'
+        - 'hyperpolymath/cicd-suite@11b5ab51a1600b7b798572200094e611ae0654c2'
+        - 'hyperpolymath/cicd-suite@2c09abbdedfc8006abc02caa91c0bb9b4bb0e0a2'
+        - 'hyperpolymath/cicd-suite@fc64172aa53e85289d5d7d6e15c2435a867cc1c9'
     '.github/workflows/pages.yml':
         - 'actions/checkout@v4.1.1'
         - 'actions/deploy-pages@v5.0.0'
         - 'actions/upload-pages-artifact@v3.0.1'
+    '.github/workflows/secret-scanner.yml': []
 dependencies:
+    'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1':
+        ref: 'v7.0.1'
+        commit: 'sha1-3d3c42e5aac5ba805825da76410c181273ba90b1'
+        owner_id: 44036562
+        repo_id: 197814629
     'actions/checkout@v4.1.1':
         ref: 'v4.1.1'
         commit: 'sha1-b4ffde65f46336ab88eb53be808477a3936bae11'
@@ -44,13 +51,23 @@ dependencies:
         repo_id: 496012378
         uses:
             - 'actions/upload-artifact@v4'
-    'github/codeql-action@v3.37.3':
-        ref: 'v3.37.3'
-        commit: 'sha1-4187e74d05793876e9989daffde9c3e66b4acd07'
+    'github/codeql-action@cdf488f595d80d6e07e03d4674febd5ab45fa938':
+        ref: 'v4.37.9'
+        commit: 'sha1-cdf488f595d80d6e07e03d4674febd5ab45fa938'
         owner_id: 9919
         repo_id: 259445878
-    'hyperpolymath/cicd-suite@main':
+    'hyperpolymath/cicd-suite@11b5ab51a1600b7b798572200094e611ae0654c2':
         ref: 'main'
-        commit: 'sha1-a3cd79fba541444c619902330d0b618eb1612634'
+        commit: 'sha1-11b5ab51a1600b7b798572200094e611ae0654c2'
+        owner_id: 6759885
+        repo_id: 1326697643
+    'hyperpolymath/cicd-suite@2c09abbdedfc8006abc02caa91c0bb9b4bb0e0a2':
+        ref: 'main'
+        commit: 'sha1-2c09abbdedfc8006abc02caa91c0bb9b4bb0e0a2'
+        owner_id: 6759885
+        repo_id: 1326697643
+    'hyperpolymath/cicd-suite@fc64172aa53e85289d5d7d6e15c2435a867cc1c9':
+        ref: 'main'
+        commit: 'sha1-fc64172aa53e85289d5d7d6e15c2435a867cc1c9'
         owner_id: 6759885
         repo_id: 1326697643
