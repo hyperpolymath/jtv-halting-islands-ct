@@ -10,7 +10,7 @@ workflows:
     '.github/workflows/labels.yml': []
     '.github/workflows/main-estate-audit.yml':
         - 'actions/checkout@v4.4.0'
-        - 'hyperpolymath/cicd-suite@b25f613c860823372a7ff2cb75c23f3606bee81f'
+        - 'hyperpolymath/cicd-suite@5a10b72e574ef63855fafd4568a4c178657f3294'
         - 'hyperpolymath/cicd-suite@2c09abbdedfc8006abc02caa91c0bb9b4bb0e0a2'
         - 'hyperpolymath/cicd-suite@fc64172aa53e85289d5d7d6e15c2435a867cc1c9'
     '.github/workflows/pages.yml':
@@ -56,9 +56,9 @@ dependencies:
         commit: 'sha1-cdf488f595d80d6e07e03d4674febd5ab45fa938'
         owner_id: 9919
         repo_id: 259445878
-    'hyperpolymath/cicd-suite@b25f613c860823372a7ff2cb75c23f3606bee81f':
+    'hyperpolymath/cicd-suite@5a10b72e574ef63855fafd4568a4c178657f3294':
         ref: 'main'
-        commit: 'sha1-b25f613c860823372a7ff2cb75c23f3606bee81f'
+        commit: 'sha1-5a10b72e574ef63855fafd4568a4c178657f3294'
         owner_id: 6759885
         repo_id: 1326697643
         uses:
