@@ -4,7 +4,9 @@
 
 mod common;
 
-use jtv_halting_islands_ct::{eval_control, parse_control_program, DataValue, Env};
+use jtv_halting_islands_ct::{
+    eval_control, parse_control_program, DataValue, Env, MAX_CONTROL_NESTING,
+};
 
 fn run(source: &str) -> (Env, String) {
     let prog = parse_control_program(source).unwrap_or_else(|e| panic!("{source:?}: {e}"));
@@ -24,6 +26,12 @@ fn assignment_binds_data_result() {
 fn if_then_else() {
     let (env, _) = run("begin\n  x = 5\n  if x < 10 then\n    y = 1\n  else\n    y = 0\nend");
     assert_eq!(env["y"], DataValue::Number(1));
+    // False condition: the else branch must run.
+    let (env, _) = run("begin\n  x = 15\n  if x < 10 then\n    y = 1\n  else\n    y = 0\nend");
+    assert_eq!(env["y"], DataValue::Number(0));
+    // False condition and no else branch: nothing runs.
+    let (env, _) = run("if false then y = 1");
+    assert!(!env.contains_key("y"));
 }
 
 #[test]
@@ -69,5 +77,25 @@ fn malformed_control_programs_are_rejected() {
             parse_control_program(source).is_err(),
             "{source:?} should be rejected"
         );
+    }
+}
+
+#[test]
+fn nesting_within_the_limit_runs() {
+    let n = 200;
+    let source = format!("{}x = 1{}", "begin ".repeat(n), " end".repeat(n));
+    let (env, _) = run(&source);
+    assert_eq!(env["x"], DataValue::Number(1));
+}
+
+#[test]
+fn nesting_past_the_limit_is_a_parse_error() {
+    for n in [MAX_CONTROL_NESTING, 200_000] {
+        let source = format!("{}x = 1{}", "begin ".repeat(n), " end".repeat(n));
+        let err = parse_control_program(&source).unwrap_err();
+        assert!(err.to_string().contains("nested too deeply"), "{err}");
+        let source = format!("{}x = 1", "if true then ".repeat(n));
+        let err = parse_control_program(&source).unwrap_err();
+        assert!(err.to_string().contains("nested too deeply"), "{err}");
     }
 }

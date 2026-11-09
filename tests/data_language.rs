@@ -5,7 +5,12 @@
 
 mod common;
 
-use jtv_halting_islands_ct::{eval_data, parse_data_program, DataSourceError, DataValue, Env};
+use jtv_halting_islands_ct::data::parse_data_tokens;
+use jtv_halting_islands_ct::lexer::{tokenize, Token, TokenKind};
+use jtv_halting_islands_ct::{
+    eval_data, parse_data_program, DataSourceError, DataValue, Env, MAX_DATA_DEPTH,
+    MAX_DATA_NESTING,
+};
 
 fn ev(source: &str) -> DataValue {
     let expr = parse_data_program(source).unwrap_or_else(|e| panic!("{source:?}: {e}"));
@@ -93,6 +98,11 @@ fn and_or() {
     assert_eq!(ev("true or false"), b(true));
     assert_eq!(ev("1 < 2 and 3 > 2"), b(true));
     assert_eq!(ev("1 > 2 or 3 > 2"), b(true));
+    assert_eq!(ev("false and true"), b(false));
+    assert_eq!(ev("false and false"), b(false));
+    assert_eq!(ev("false or false"), b(false));
+    assert_eq!(ev("false or true"), b(true));
+    assert_eq!(ev("true and true"), b(true));
 }
 
 #[test]
@@ -141,4 +151,92 @@ fn malformed_data_expressions_are_rejected() {
             "{source:?} should be rejected"
         );
     }
+}
+
+fn parse_error_message(source: &str) -> String {
+    match parse_data_program(source) {
+        Err(DataSourceError::Parse(e)) => e.message,
+        other => panic!("{source:?}: expected a parse error, got {other:?}"),
+    }
+}
+
+fn addition_chain(terms: usize) -> String {
+    vec!["0"; terms].join(" + ")
+}
+
+#[test]
+fn addition_chain_at_the_depth_limit_evaluates() {
+    // A chain of n terms builds a left-deep tree of height n.
+    assert_eq!(ev(&addition_chain(MAX_DATA_DEPTH)), num(0));
+}
+
+#[test]
+fn addition_chain_past_the_depth_limit_is_a_parse_error() {
+    for terms in [MAX_DATA_DEPTH + 1, 200_000] {
+        let msg = parse_error_message(&addition_chain(terms));
+        assert!(msg.contains("too deep"), "{msg}");
+    }
+}
+
+#[test]
+fn boolean_chain_past_the_depth_limit_is_a_parse_error() {
+    let source = vec!["true"; 200_000].join(" and ");
+    let msg = parse_error_message(&source);
+    assert!(msg.contains("too deep"), "{msg}");
+}
+
+#[test]
+fn parenthesis_nesting_at_the_limit_parses() {
+    let n = MAX_DATA_NESTING;
+    let source = format!("{}true{}", "(".repeat(n), ")".repeat(n));
+    assert_eq!(ev(&source), b(true));
+}
+
+#[test]
+fn parenthesis_nesting_past_the_limit_is_a_parse_error() {
+    for n in [MAX_DATA_NESTING + 1, 200_000] {
+        let source = format!("{}true{}", "(".repeat(n), ")".repeat(n));
+        let msg = parse_error_message(&source);
+        assert!(msg.contains("nested too deeply"), "{msg}");
+    }
+}
+
+fn tok(kind: TokenKind, text: &str, pos: usize) -> Token {
+    Token {
+        kind,
+        text: text.to_string(),
+        pos,
+    }
+}
+
+#[test]
+fn unknown_comparison_operator_text_is_a_parse_error() {
+    // `tokenize` never emits this, but `Token` is public, so a caller can.
+    let tokens = [
+        tok(TokenKind::Number, "1", 0),
+        tok(TokenKind::CmpOp, "=", 2),
+        tok(TokenKind::Number, "2", 4),
+        tok(TokenKind::Eof, "", 5),
+    ];
+    let err = parse_data_tokens(&tokens, 0).unwrap_err();
+    assert_eq!(err.pos, 2);
+}
+
+#[test]
+fn malformed_token_slices_are_parse_errors() {
+    let eof = tokenize("").unwrap();
+    assert!(parse_data_tokens(&[], 0).is_err());
+    assert!(parse_data_tokens(&eof, 1).is_err());
+    assert!(parse_data_tokens(&eof, usize::MAX).is_err());
+    // A stream truncated before its Eof.
+    let truncated = [
+        tok(TokenKind::Number, "1", 0),
+        tok(TokenKind::AddOpSym, "+", 2),
+    ];
+    assert!(parse_data_tokens(&truncated, 0).is_err());
+    // A well-formed stream still parses from a start index inside it.
+    let tokens = tokenize("1 + 2").unwrap();
+    let (expr, next) = parse_data_tokens(&tokens, 0).unwrap();
+    assert_eq!(eval_data(&expr, &Env::new()), Ok(num(3)));
+    assert_eq!(tokens[next].kind, TokenKind::Eof);
 }

@@ -88,9 +88,10 @@ pub mod lexer;
 
 pub use control::{
     eval_control, parse_control_program, ControlParseError, ControlStmt, ParseError,
+    MAX_CONTROL_NESTING,
 };
 pub use data::{
     eval_data, parse_data_program, BoolOp, CompOp, DataExpr, DataParseError, DataSourceError,
-    DataValue, Env,
+    DataValue, Env, MAX_DATA_DEPTH, MAX_DATA_NESTING,
 };
 pub use lexer::LexError;

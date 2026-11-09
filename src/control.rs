@@ -93,9 +93,17 @@ impl From<ControlParseError> for ParseError {
     }
 }
 
+/// Deepest statement nesting (`begin`, `if`, `while` bodies) the CONTROL
+/// parser accepts. Parsing and [`eval_control`] both recurse on nesting, so
+/// deeper input is rejected with a [`ControlParseError`] instead of risking a
+/// native stack overflow.
+pub const MAX_CONTROL_NESTING: usize = 256;
+
 struct ControlParser<'t> {
     tokens: &'t [Token],
     pos: usize,
+    /// Current statement nesting.
+    nesting: usize,
 }
 
 impl<'t> ControlParser<'t> {
@@ -142,6 +150,23 @@ impl<'t> ControlParser<'t> {
     }
 
     fn stmt(&mut self) -> Result<ControlStmt, ParseError> {
+        if self.nesting >= MAX_CONTROL_NESTING {
+            return Err(ControlParseError {
+                message: format!(
+                    "statements nested too deeply: the CONTROL parser accepts at most \
+                     {MAX_CONTROL_NESTING} levels"
+                ),
+                pos: self.peek().pos,
+            }
+            .into());
+        }
+        self.nesting += 1;
+        let stmt = self.stmt_inner();
+        self.nesting -= 1;
+        stmt
+    }
+
+    fn stmt_inner(&mut self) -> Result<ControlStmt, ParseError> {
         let tok = self.peek();
         match tok.kind {
             TokenKind::Begin => self.block(),
@@ -219,6 +244,7 @@ pub fn parse_control_program(source: &str) -> Result<ControlStmt, ParseError> {
     ControlParser {
         tokens: &tokens,
         pos: 0,
+        nesting: 0,
     }
     .program()
 }

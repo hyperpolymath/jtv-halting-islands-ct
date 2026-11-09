@@ -99,7 +99,8 @@ cargo test
 
 The binary reads the file named on its command line. Exit status is `+0+`
 on success, `+1+` on a lex, parse or evaluation error (including a diode
-violation), and `+2+` on a usage error or an unreadable file.
+violation) or an error writing to stdout, and `+2+` on a usage error or an
+unreadable file.
 
 === Repo layout
 
@@ -313,8 +314,12 @@ keywords in every DATA position are rejected by the DATA parser. The
 cannot be built around a `+ControlStmt+`.
 
 Halting is not resource-boundedness: evaluation recursion depth equals
-AST depth, so a pathologically deep DATA expression can exhaust the
-native stack.
+AST depth, so a pathologically deep DATA AST can exhaust the native
+stack. The parsers therefore reject source text that would build a DATA
+AST taller than `+MAX_DATA_DEPTH+` (1024), nest DATA parentheses deeper
+than `+MAX_DATA_NESTING+` (128), or nest CONTROL statements deeper than
+`+MAX_CONTROL_NESTING+` (256); each is a parse error, not a crash. A
+`+DataExpr+` built by hand is not bounded.
 
 ==== Other explicit non-goals of this repo
 

@@ -121,15 +121,49 @@ fn unexpected(tok: &Token) -> DataParseError {
     }
 }
 
+/// Deepest DATA AST the parser will build. Parsing and evaluation both
+/// recurse on the AST, so source text that would produce a taller tree (for
+/// example a very long `0 + 0 + ...` chain, which builds a left-deep tree)
+/// is rejected with a [`DataParseError`] instead of risking a native stack
+/// overflow.
+pub const MAX_DATA_DEPTH: usize = 1024;
+
+/// Deepest parenthesis nesting the DATA parser accepts. Parentheses add no
+/// AST nodes, so [`MAX_DATA_DEPTH`] alone would not bound the parser's own
+/// recursion on input such as `((((...))))`.
+pub const MAX_DATA_NESTING: usize = 128;
+
 struct DataParser<'t> {
     tokens: &'t [Token],
     pos: usize,
+    /// Current parenthesis nesting.
+    nesting: usize,
+}
+
+/// A parsed subexpression together with its AST height.
+type Parsed = (DataExpr, usize);
+
+/// Height of a node whose tallest child has height `child`, or an error at
+/// `at` if that exceeds [`MAX_DATA_DEPTH`].
+fn checked_height(child: usize, at: &Token) -> Result<usize, DataParseError> {
+    let height = child + 1;
+    if height > MAX_DATA_DEPTH {
+        return Err(DataParseError {
+            message: format!(
+                "expression too deep: the DATA parser builds ASTs of height at most \
+                 {MAX_DATA_DEPTH}"
+            ),
+            pos: at.pos,
+        });
+    }
+    Ok(height)
 }
 
 impl<'t> DataParser<'t> {
     fn peek(&self) -> &'t Token {
-        // `tokenize` always ends the stream with Eof, and `advance` never
-        // moves past it, so this index is always in bounds.
+        // `parse_data_tokens` checks that the slice ends with Eof and that
+        // `start` is in range; `advance` never moves past an Eof, so this
+        // index is always in bounds.
         &self.tokens[self.pos]
     }
 
@@ -141,42 +175,57 @@ impl<'t> DataParser<'t> {
         tok
     }
 
-    fn boolean_expr(&mut self) -> Result<DataExpr, DataParseError> {
-        let mut left = self.boolean_term()?;
+    fn boolean_expr(&mut self) -> Result<Parsed, DataParseError> {
+        let (mut left, mut height) = self.boolean_term()?;
         loop {
             let op = match self.peek().kind {
                 TokenKind::And => BoolOp::And,
                 TokenKind::Or => BoolOp::Or,
-                _ => return Ok(left),
+                _ => return Ok((left, height)),
             };
-            self.advance();
-            let right = self.boolean_term()?;
+            let op_tok = self.advance();
+            let (right, right_height) = self.boolean_term()?;
+            height = checked_height(height.max(right_height), op_tok)?;
             left = DataExpr::BoolOp(op, Box::new(left), Box::new(right));
         }
     }
 
-    fn boolean_term(&mut self) -> Result<DataExpr, DataParseError> {
+    fn boolean_term(&mut self) -> Result<Parsed, DataParseError> {
         if self.peek().kind == TokenKind::Not {
-            self.advance();
-            let atom = self.boolean_atom()?;
-            return Ok(DataExpr::Not(Box::new(atom)));
+            let not_tok = self.advance();
+            let (atom, height) = self.boolean_atom()?;
+            return Ok((
+                DataExpr::Not(Box::new(atom)),
+                checked_height(height, not_tok)?,
+            ));
         }
         self.boolean_atom()
     }
 
-    fn boolean_atom(&mut self) -> Result<DataExpr, DataParseError> {
+    fn boolean_atom(&mut self) -> Result<Parsed, DataParseError> {
         match self.peek().kind {
             TokenKind::True => {
                 self.advance();
-                Ok(DataExpr::Boolean(true))
+                Ok((DataExpr::Boolean(true), 1))
             }
             TokenKind::False => {
                 self.advance();
-                Ok(DataExpr::Boolean(false))
+                Ok((DataExpr::Boolean(false), 1))
             }
             TokenKind::LParen => {
-                self.advance();
+                let open = self.advance();
+                if self.nesting >= MAX_DATA_NESTING {
+                    return Err(DataParseError {
+                        message: format!(
+                            "parentheses nested too deeply: the DATA parser accepts at most \
+                             {MAX_DATA_NESTING} levels"
+                        ),
+                        pos: open.pos,
+                    });
+                }
+                self.nesting += 1;
                 let inner = self.boolean_expr()?;
+                self.nesting -= 1;
                 let close = self.peek();
                 if close.kind != TokenKind::RParen {
                     return Err(unexpected(close));
@@ -185,36 +234,44 @@ impl<'t> DataParser<'t> {
                 Ok(inner)
             }
             _ => {
-                let left = self.additive_expr()?;
+                let (left, left_height) = self.additive_expr()?;
                 if self.peek().kind != TokenKind::CmpOp {
-                    return Ok(left);
+                    return Ok((left, left_height));
                 }
-                let op = match self.advance().text.as_str() {
+                let op_tok = self.advance();
+                let op = match op_tok.text.as_str() {
                     "==" => CompOp::Eq,
                     "!=" => CompOp::Neq,
                     "<" => CompOp::Lt,
                     ">" => CompOp::Gt,
                     "<=" => CompOp::Lte,
                     ">=" => CompOp::Gte,
-                    other => unreachable!("lexer produced unknown CmpOp {other:?}"),
+                    // `tokenize` never produces any other CmpOp text, but
+                    // `Token` is public, so a hand-built stream can.
+                    _ => return Err(unexpected(op_tok)),
                 };
-                let right = self.additive_expr()?;
-                Ok(DataExpr::Comparison(op, Box::new(left), Box::new(right)))
+                let (right, right_height) = self.additive_expr()?;
+                let height = checked_height(left_height.max(right_height), op_tok)?;
+                Ok((
+                    DataExpr::Comparison(op, Box::new(left), Box::new(right)),
+                    height,
+                ))
             }
         }
     }
 
-    fn additive_expr(&mut self) -> Result<DataExpr, DataParseError> {
-        let mut left = self.term()?;
+    fn additive_expr(&mut self) -> Result<Parsed, DataParseError> {
+        let (mut left, mut height) = self.term()?;
         while matches!(self.peek().kind, TokenKind::AddOpSym | TokenKind::AddOpWord) {
-            self.advance();
-            let right = self.term()?;
+            let op_tok = self.advance();
+            let (right, right_height) = self.term()?;
+            height = checked_height(height.max(right_height), op_tok)?;
             left = DataExpr::Add(Box::new(left), Box::new(right));
         }
-        Ok(left)
+        Ok((left, height))
     }
 
-    fn term(&mut self) -> Result<DataExpr, DataParseError> {
+    fn term(&mut self) -> Result<Parsed, DataParseError> {
         let tok = self.peek();
         match tok.kind {
             TokenKind::Number => {
@@ -223,11 +280,11 @@ impl<'t> DataParser<'t> {
                     pos: tok.pos,
                 })?;
                 self.advance();
-                Ok(DataExpr::Number(n))
+                Ok((DataExpr::Number(n), 1))
             }
             TokenKind::Ident => {
                 self.advance();
-                Ok(DataExpr::VarRef(tok.text.clone()))
+                Ok((DataExpr::VarRef(tok.text.clone()), 1))
             }
             _ => Err(unexpected(tok)),
         }
@@ -240,12 +297,32 @@ impl<'t> DataParser<'t> {
 /// This is the single entry point the CONTROL parser uses for every DATA
 /// position (assignment right-hand side, `if`/`while` condition, `print`
 /// argument). CONTROL never parses DATA with its own grammar.
+///
+/// `tokens` must end with a [`TokenKind::Eof`] token (as [`tokenize`]'s
+/// output does) and `start` must index into it; otherwise this returns a
+/// [`DataParseError`]. Expressions taller than [`MAX_DATA_DEPTH`] or with
+/// parentheses nested deeper than [`MAX_DATA_NESTING`] are also rejected.
 pub fn parse_data_tokens(
     tokens: &[Token],
     start: usize,
 ) -> Result<(DataExpr, usize), DataParseError> {
-    let mut p = DataParser { tokens, pos: start };
-    let expr = p.boolean_expr()?;
+    match tokens.last() {
+        Some(last) if last.kind == TokenKind::Eof && start < tokens.len() => {}
+        last => {
+            return Err(DataParseError {
+                message: "token stream must end with Eof and the start index must be \
+                          inside it"
+                    .to_string(),
+                pos: last.map_or(0, |t| t.pos),
+            })
+        }
+    }
+    let mut p = DataParser {
+        tokens,
+        pos: start,
+        nesting: 0,
+    };
+    let (expr, _height) = p.boolean_expr()?;
     Ok((expr, p.pos))
 }
 
@@ -293,7 +370,8 @@ pub fn parse_data_program(source: &str) -> Result<DataExpr, DataSourceError> {
 ///
 /// Caveat: halting is not resource-boundedness. The recursion depth equals
 /// the AST depth, so an extremely deep expression can exhaust the native
-/// stack.
+/// stack. The parser never builds an AST taller than [`MAX_DATA_DEPTH`], so
+/// this only applies to a `DataExpr` built by hand.
 pub fn eval_data(expr: &DataExpr, env: &Env) -> Result<DataValue, String> {
     match expr {
         DataExpr::Number(n) => Ok(DataValue::Number(*n)),
