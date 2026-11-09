@@ -1,5 +1,6 @@
 (* JtV (Julia the Viper) — full grammar, both sublanguages, and the bridge.
-   Matches src/jtv/data_parser.py and src/jtv/control_parser.py exactly. *)
+   Implemented by src/data.rs (DATA) and src/control.rs (CONTROL), with the
+   shared tokenizer in src/lexer.rs. *)
 
 (* =====================================================================
    DATA sublanguage — addition-only, total (no recursion, no loops, no
@@ -7,6 +8,8 @@
    Membership in this grammar IS the termination certificate — every
    production below is a finite structural recursion with no way to
    loop, so anything that parses as data_expr is guaranteed to halt.
+   (This is an informal argument, not a machine-checked proof; see README,
+   Limitations §5.)
    ===================================================================== *)
 
 data_expr       = boolean_expr ;
@@ -35,7 +38,13 @@ add_op          = "+" | "plus" | "added_to" | "with" ;
 
 term            = number_literal | data_variable ;
 
-number_literal  = digit , { digit } , [ "/" , digit , { digit } ] ;
+(* Numbers are i64. A literal outside the i64 range is a parse error, and
+   addition is checked: overflow is an evaluation error. The original design
+   also had rational literals ( digit , { digit } , "/" , digit , { digit } ),
+   with exact rational arithmetic. The current implementation does not:
+   the lexer recognises N/M only so the DATA parser can reject it with a
+   clear message. See README, Limitations §4. *)
+number_literal  = digit , { digit } ;
 data_variable   = identifier ;
 
 (* =====================================================================
@@ -58,7 +67,7 @@ block           = "begin" , { control_stmt } , "end" ;
    THE BRIDGE — the diode.
    The right-hand side of an assignment, and every condition/argument
    below, is a data_expr: parsed by the SEPARATE data-language parser,
-   producing a SEPARATE DataNode AST, then evaluated to a halted value
+   producing a SEPARATE DataExpr AST, then evaluated to a halted value
    before being bound into the CONTROL environment or consumed by
    CONTROL. There is no production anywhere in this file, or in
    data_expr above, under which a control_stmt can appear inside a
@@ -81,7 +90,7 @@ variable        = identifier ;
 
 (* =====================================================================
    Shared lexical rules (lexing is not part of the diode — see
-   src/jtv/lexer.py's module docstring for why).
+   src/lexer.rs for why). Comments run from "#" to end of line.
    ===================================================================== *)
 
 identifier      = letter , { letter | digit | "_" } ;
