@@ -1,5 +1,5 @@
 # A CONTROL program that uses DATA blocks as totality oracles. Run with:
-#   python -m jtv.cli examples/oracle.jtv --mode control
+#   cargo run --quiet -- examples/oracle.jtv --mode control
 #
 # `i < n`, `sum plus i`, and `i plus 1` are all DATA expressions: each one
 # is guaranteed to halt the instant it's checked/evaluated (it's addition

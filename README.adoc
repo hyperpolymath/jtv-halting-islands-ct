@@ -3,9 +3,11 @@
 JtV is a Harvard-architecture language enforced at the grammar level,
 with two grammatically-sealed sublanguages:
 
-* *DATA* — an addition-only, total (provably-halting) expression
+* *DATA* — an addition-only, total (always-halting) expression
 language. No recursion, no loops, no conditionals branching on
-unevaluated control. Numbers are exact rationals.
+unevaluated control. Numbers are 64-bit signed integers (`+i64+`) with
+checked addition: overflow is an evaluation error. (The original design
+used exact rationals; see link:#data-numbers[Limitations §4].)
 * *CONTROL* — Turing-complete and imperative: assignment,
 `+if+`/`+else+`, `+while+`, `+print+`, blocks.
 
@@ -19,6 +21,10 @@ terminates — so checking totality collapses to parsing. Because the
 bridge is one-way, a data island contributes no non-termination to the
 surrounding program: a data block is a *totality oracle* the control
 logic may rely on.
+
+That property is argued informally, not machine-checked. See
+link:#verification-status[Limitations §5] for exactly what the tests do
+and do not establish.
 
 This repo is a proof-of-concept of exactly that claim and nothing more.
 It is not a language implementation, not a type checker, not an LSP. See
@@ -53,61 +59,76 @@ reasoning about this program, not a guarantee the language gives you.
 Running it prints `+10+`. See link:#limitations[LIMITATIONS] for why
 that is not the same as JtV proving the whole program halts.
 
-Exact arithmetic, no float drift:
+A standalone DATA expression:
 
 ....
 # examples/pure_data.jtv
-1/3 plus 1/3 added_to 1/3
+40 plus 1 added_to 0 with 1 + 0
 ....
 
-evaluates to exactly `+1+` — DATA numbers are `+fractions.Fraction+`,
-not floats.
+evaluates to `+42+`. DATA numbers are `+i64+`; `+9223372036854775807
+plus 1+` is an evaluation error (`+integer overflow+`), not a wrap or a
+crash. A rational literal such as `+1/3+` is rejected at parse time with
+a message that says so.
 
 And the diode holding:
 link:examples/violation.jtv[`+examples/violation.jtv+`] tries to put an
 `+if+`/`+then+`/`+else+` on the right-hand side of an assignment
-(i.e. inside DATA-grammar position) and is *rejected* — that rejection
+(i.e. inside DATA-grammar position) and is *rejected* — that rejection
 is the diode working, not a bug.
 
 === How to run
 
-Requires Python 3.11+ (uses `+fractions.Fraction+` and PEP 604 union
-types). No dependencies to run; `+pytest+` only for the test suite.
+Requires a stable Rust toolchain (`+cargo+`). No dependencies.
 
 [source,sh]
 ----
 # Evaluate a standalone DATA expression:
-python3 -m jtv.cli examples/pure_data.jtv --mode data      # -> 1
+cargo run --quiet -- examples/pure_data.jtv --mode data      # -> 42
 
 # Parse + execute a CONTROL program:
-python3 -m jtv.cli examples/oracle.jtv --mode control      # -> 10
+cargo run --quiet -- examples/oracle.jtv --mode control      # -> 10
 
-# Watch the diode reject a smuggling attempt:
-python3 -m jtv.cli examples/violation.jtv --mode control   # -> DataParseError
+# Watch the diode reject a smuggling attempt (exit status 1):
+cargo run --quiet -- examples/violation.jtv --mode control   # -> DATA parse error ... diode ...
 
-# Run the test suite (the negative tests in tests/test_diode_negative.py
-# are the heart of this POC):
-python3 -m pip install pytest
-PYTHONPATH=src python3 -m pytest tests/ -v
+# Run the test suite (tests/diode_negative.rs and the compile_fail
+# doctests in src/lib.rs are the heart of this POC):
+cargo test
 ----
 
-(`+PYTHONPATH=src+` is required because this POC deliberately has no
-package build step — see LIMITATIONS.)
+The binary reads the file named on its command line. Exit status is `+0+`
+on success, `+1+` on a lex, parse or evaluation error (including a diode
+violation) or an error writing to stdout, and `+2+` on a usage error or an
+unreadable file.
 
 === Repo layout
 
 * `+GRAMMAR.ebnf+` — full EBNF for DATA, CONTROL, and the bridge.
-* `+src/jtv/data_ast.py+` / `+data_parser.py+` / `+data_eval.py+` — the
-DATA sublanguage: its own AST types, its own parser, its own evaluator.
-* `+src/jtv/control_ast.py+` / `+control_parser.py+` /
-`+control_eval.py+` — the CONTROL sublanguage, likewise self-contained.
-* `+src/jtv/diode.py+` — the structural validator; see its docstring for
-how the two enforcement layers (grammar separation + AST-construction
-validation) work together.
+* `+src/lexer.rs+` — the shared tokenizer (lexing is not the diode
+boundary).
+* `+src/data.rs+` — the DATA sublanguage: its own AST type
+(`+DataExpr+`), its own parser, its own evaluator.
+* `+src/control.rs+` — the CONTROL sublanguage (`+ControlStmt+`), likewise
+self-contained; it obtains every DATA expression from the DATA parser.
+* `+src/lib.rs+` — crate root; its doc comment explains the two diode
+layers and carries the type-level negative tests (`+compile_fail+`
+doctests).
+* `+src/main.rs+` — the command-line runner.
 * `+examples/+` — `+pure_data.jtv+`, `+oracle.jtv+`, `+violation.jtv+`.
-* `+tests/test_diode_negative.py+` — the negative tests: the actual
-point of this repository.
+* `+tests/diode_negative.rs+` — the grammar-level negative tests: the
+actual point of this repository.
+* `+tests/data_language.rs+`, `+tests/control_language.rs+` — parser and
+evaluator tests for each sublanguage.
+* `+tests/data_totality.rs+` — bounded exhaustive check that DATA
+evaluation returns on every small AST (see §5).
+* `+tests/cli.rs+` and `+tests/fixtures/+` — the binary reads and runs the
+file it is given.
+* `+dev-notes/+` — dated session notes. They describe the original Python
+PoC, which was removed in `+abe769d+` and replaced by this Rust port;
+read them as history.
 
+[[limitations]]
 === Limitations
 
 *This is a proof-of-concept of one specific claim, deliberately scoped
@@ -115,8 +136,8 @@ narrow. It is not a language implementation.*
 
 ==== 1. Totality-oracle vs. whole-program-halting
 
-JtV proves that _each individual DATA expression_ halts — that’s the
-totality-oracle property, and it’s what "`membership in the grammar is
+JtV’s design argues that _each individual DATA expression_ halts — that’s
+the totality-oracle property, and it’s what "`membership in the grammar is
 the termination certificate`" means. *It is not a proof that a whole JtV
 program halts.* CONTROL is openly Turing-complete (it has unrestricted
 `+while+`), and a CONTROL program can loop forever exactly as any
@@ -141,7 +162,7 @@ narrowest case where the collapse is clean.
 ==== 3. Prior art
 
 A prior-art / design-space search has now been done (see
-link:dev-notes/2026-07-07-prior-art.md[`+dev-notes/2026-07-07-prior-art.md+`]
+link:dev-notes/2026-07-07-prior-art.adoc[`+dev-notes/2026-07-07-prior-art.adoc+`]
 for the full analysis and sources). The short version, stated honestly:
 
 *Each of JtV’s three ingredients is individually well-precedented. What
@@ -241,6 +262,64 @@ a _one-way_ DATA→CONTROL diode _purely structurally_ (grammar + AST, no
 types, no checker, no runtime guard), all at once. That specific point
 looks empty on the map. Whether it is worth occupying is a separate
 question this POC does not try to answer.
+
+[[data-numbers]]
+==== 4. DATA numbers: `+i64+` now, rationals in the original design
+
+*Flagged for the owner, not silently resolved.* The original Python PoC
+gave DATA exact rational numbers (`+fractions.Fraction+`), with `+N/M+`
+literals; `+1/3 plus 1/3 added_to 1/3+` evaluated to exactly `+1+`. The
+Rust rewrite (`+98880b1+`) changed DATA numbers to `+i64+` without saying
+so, and its README and grammar kept describing rationals.
+
+This README and `+GRAMMAR.ebnf+` now describe what the code does:
+
+* numbers are `+i64+`; a literal that does not fit is a parse error;
+* `+N/M+` is recognised by the lexer only so that the DATA parser can
+reject it with a message naming the reason;
+* addition is checked (`+checked_add+`); overflow is an evaluation error.
+Before this change an overflowing `+plus+` panicked in debug builds and
+wrapped silently in release builds.
+
+The termination argument is the same for both number types: neither
+adds anything to loop on. Whether DATA should go back to exact rationals
+is a design decision for the owner; nothing here decides it.
+
+[[verification-status]]
+==== 5. Verification status
+
+*Nothing in this repository is machine-verified.* An earlier revision
+annotated `+eval_data+` with the Creusot contract `+ensures(true)+` and
+described it as formally verifying totality. That postcondition is
+vacuous — it holds of every function, terminating or not, so it states
+nothing about totality — and the optional `+verify+` feature that enabled
+it did not compile on a stable toolchain (`+creusot-contracts-proc+`
+failed to build). The annotation, the feature, and the
+`+creusot-contracts+` dependency have been removed.
+
+What stands instead:
+
+* *An informal argument.* `+eval_data+` recurses only on strictly smaller,
+owned subtrees of a finite AST and contains no loop, so it returns. See
+its doc comment in `+src/data.rs+`.
+* *A bounded exhaustive test.* `+tests/data_totality.rs+` evaluates every
+DATA AST up to depth 2 over a fixed set of atoms (including `+i64::MIN+`,
+`+i64::MAX+`, booleans, a bound and an unbound variable) and requires
+each evaluation to return `+Ok+` or `+Err+` without panicking. This
+covers a finite space only; it is evidence, not a proof. It does detect
+the old unchecked addition.
+* *The diode tests.* `+tests/diode_negative.rs+` checks that control
+keywords in every DATA position are rejected by the DATA parser. The
+`+compile_fail+` doctests in `+src/lib.rs+` check that a `+DataExpr+`
+cannot be built around a `+ControlStmt+`.
+
+Halting is not resource-boundedness: evaluation recursion depth equals
+AST depth, so a pathologically deep DATA AST can exhaust the native
+stack. The parsers therefore reject source text that would build a DATA
+AST taller than `+MAX_DATA_DEPTH+` (1024), nest DATA parentheses deeper
+than `+MAX_DATA_NESTING+` (128), or nest CONTROL statements deeper than
+`+MAX_CONTROL_NESTING+` (256); each is a parse error, not a crash. A
+`+DataExpr+` built by hand is not bounded.
 
 ==== Other explicit non-goals of this repo
 

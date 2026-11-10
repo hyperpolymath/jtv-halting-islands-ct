@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MPL-2.0
+# CLI fixture for tests/cli.rs. Its output differs from every file in
+# examples/, so a test that sees this output knows the binary actually
+# read this file rather than running a built-in program.
+begin
+  i = 1
+  total = 0
+  while i <= 4 do
+    begin
+      total = total plus i
+      print(i, total)
+      i = i plus 1
+    end
+  if total == 10 then print(true, total) else print(false, total)
+end
